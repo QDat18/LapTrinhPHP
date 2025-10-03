@@ -1,2 +1,0 @@
-# LapTrinhPHP
-Project BTL cuoiky

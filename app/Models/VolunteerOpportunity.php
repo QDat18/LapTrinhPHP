@@ -6,11 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Carbon\Carbon;
-use app\Models\VolunteerActivity;
-use app\Models\Organization;
-use app\Models\Category;
-use app\Models\Favorite;
-use app\Models\Application;
+use App\Models\VolunteerActivity;
+use App\Models\Organization;
+use App\Models\Category;
+use App\Models\Favorite;
+use App\Models\Application;
 
 class VolunteerOpportunity extends Model{
     use HasFactory;

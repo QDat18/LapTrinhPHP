@@ -66,6 +66,10 @@ class User extends Authenticatable{
         return $this->hasMany(VolunteerActivity::class, 'volunteer_id', 'user_id');
     }
 
+    public function reviews(){
+        return $this->hasMany(Review::class, 'reviewer_id', 'user_id');
+    }
+
     public function sentReviews(): HasMany
     {
         return $this->hasMany(Review::class, 'reviewer_id', 'user_id');

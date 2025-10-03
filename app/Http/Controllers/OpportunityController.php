@@ -5,6 +5,7 @@ use App\Models\Category;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\VolunteerOpportunity;
+use App\Models\Organization;
 
 class OpportunityController extends Controller
 {

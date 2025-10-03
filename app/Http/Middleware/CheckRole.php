@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Middleware;
 
 use Closure;
@@ -15,14 +16,17 @@ class CheckRole
      * @param  string  $role
      * @return mixed
      */
-    public function handle(Request $request, Closure $next, $role)
+    public function handle(Request $request, Closure $next, string $role)
     {
-        if (!auth()->check()) {
-            return redirect()->route('login');
+        if (!Auth::check()) {
+            return redirect()->route('login')->with('error', 'Vui lòng đăng nhập để tiếp tục');
         }
 
-        if (Auth::user()->user_type !== $role) {
-            abort(403, 'Unauthorized access. Admin privileges required.');
+        $user = Auth::user();
+
+        // Check if user has the required role
+        if ($user->user_type !== $role) {
+            abort(403, 'Bạn không có quyền truy cập trang này');
         }
 
         return $next($request);

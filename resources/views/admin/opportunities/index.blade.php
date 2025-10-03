@@ -1,4 +1,4 @@
-@extends('admin.layout')
+@extends('layouts.admin')
 
 @section('title', 'Opportunities Management')
 @section('breadcrumb', 'Opportunities')

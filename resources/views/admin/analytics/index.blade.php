@@ -276,4 +276,389 @@ function changePeriod(period) {
 }
 </script>
 @endpush
+@endsection@extends('layouts.admin')
+
+@section('title', 'Platform Analytics')
+@section('breadcrumb', 'Analytics')
+
+@section('content')
+<div class="space-y-6">
+
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900">Platform Analytics</h2>
+            <p class="text-gray-600 mt-1">Real-time insights and performance metrics</p>
+        </div>
+        <div class="flex space-x-3">
+            <select id="periodSelector" onchange="changePeriod(this.value)" 
+                    class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                <option value="7days" {{ $period == '7days' ? 'selected' : '' }}>Last 7 days</option>
+                <option value="30days" {{ $period == '30days' ? 'selected' : '' }}>Last 30 days</option>
+                <option value="90days" {{ $period == '90days' ? 'selected' : '' }}>Last 90 days</option>
+                <option value="year" {{ $period == 'year' ? 'selected' : '' }}>Last year</option>
+            </select>
+            <a href="{{ route('admin.analytics.impact') }}" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">
+                <i class="fas fa-chart-line mr-2"></i>Impact Report
+            </a>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {{-- Card 1: Total Users --}}
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition">
+            <div class="flex items-center justify-between mb-4">
+                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-users text-blue-600 text-xl"></i>
+                </div>
+                @if($growth['new_users'] > 0)
+                <span class="text-sm font-medium text-green-600">
+                    <i class="fas fa-arrow-up"></i> {{ $growth['new_users'] }}
+                </span>
+                @endif
+            </div>
+            <p class="text-3xl font-bold text-gray-900">{{ number_format($metrics['total_users']) }}</p>
+            <p class="text-gray-600 text-sm mt-1">Total Users</p>
+        </div>
+
+        {{-- Card 2: Active Opportunities --}}
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition">
+            <div class="flex items-center justify-between mb-4">
+                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-clipboard-list text-green-600 text-xl"></i>
+                </div>
+                @if($growth['new_opportunities'] > 0)
+                <span class="text-sm font-medium text-green-600">
+                    <i class="fas fa-arrow-up"></i> {{ $growth['new_opportunities'] }}
+                </span>
+                @endif
+            </div>
+            <p class="text-3xl font-bold text-gray-900">{{ number_format($metrics['active_opportunities']) }}</p>
+            <p class="text-gray-600 text-sm mt-1">Active Opportunities</p>
+        </div>
+
+        {{-- Card 3: Volunteer Hours --}}
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition">
+            <div class="flex items-center justify-between mb-4">
+                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-clock text-purple-600 text-xl"></i>
+                </div>
+                @if($growth['hours_logged'] > 0)
+                <span class="text-sm font-medium text-green-600">
+                    <i class="fas fa-arrow-up"></i> {{ number_format($growth['hours_logged']) }}h
+                </span>
+                @endif
+            </div>
+            <p class="text-3xl font-bold text-gray-900">{{ number_format($metrics['total_volunteer_hours']) }}</p>
+            <p class="text-gray-600 text-sm mt-1">Total Volunteer Hours</p>
+        </div>
+
+        {{-- Card 4: Verified Organizations --}}
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition">
+            <div class="flex items-center justify-between mb-4">
+                <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-building text-orange-600 text-xl"></i>
+                </div>
+            </div>
+            <p class="text-3xl font-bold text-gray-900">{{ number_format($metrics['total_organizations']) }}</p>
+            <p class="text-gray-600 text-sm mt-1">Verified Organizations</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6" id="charts-row-1">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">User Registration Trend</h3>
+            <div id="userGrowthLoader" class="text-center py-12 text-gray-500">
+                <i class="fas fa-spinner fa-spin mr-2"></i>Loading Chart...
+            </div>
+            <canvas id="userGrowthChart" height="250" class="hidden"></canvas>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">Application Status</h3>
+                <span class="text-sm text-gray-500">{{ number_format($metrics['total_applications']) }} total</span>
+            </div>
+             <div id="applicationChartLoader" class="text-center py-12 text-gray-500">
+                <i class="fas fa-spinner fa-spin mr-2"></i>Loading Chart...
+            </div>
+            <canvas id="applicationChart" height="250" class="hidden"></canvas>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6" id="charts-row-2">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Top Categories</h3>
+            <div id="topCategoriesContainer">
+                <div class="text-center py-4 text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>Loading List...</div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:col-span-2">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Volunteer Hours Trend</h3>
+            <div id="monthlyHoursLoader" class="text-center py-12 text-gray-500">
+                <i class="fas fa-spinner fa-spin mr-2"></i>Loading Chart...
+            </div>
+            <canvas id="monthlyHoursChart" height="180" class="hidden"></canvas>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6" id="top-lists-container">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                <h3 class="text-lg font-semibold text-gray-900">Top Volunteers</h3>
+            </div>
+            <div id="topVolunteersList" class="divide-y divide-gray-200">
+                <div class="text-center py-12 text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>Loading List...</div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                <h3 class="text-lg font-semibold text-gray-900">Top Organizations</h3>
+            </div>
+            <div id="topOrganizationsList" class="divide-y divide-gray-200">
+                <div class="text-center py-12 text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>Loading List...</div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+@push('scripts')
+{{-- Thêm Chart.js và Axios (Nếu chưa có) --}}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const period = document.getElementById('periodSelector').value;
+        
+        // 1. Lazy load Charts (Thời gian)
+        fetchChartData(period);
+
+        // 2. Lazy load Top Lists (Danh sách)
+        fetchTopListData();
+    });
+
+    function changePeriod(period) {
+        // Tải lại trang với tham số period mới để cập nhật Metrics và Charts/Lists
+        window.location.href = `?period=${period}`;
+    }
+
+    // --- CHART DATA FETCH & RENDERING ---
+    function fetchChartData(period) {
+        axios.get(`/api/analytics/charts?period=${period}`)
+            .then(response => {
+                const data = response.data;
+                
+                // User Trend Chart
+                renderUserTrendChart(data.userTrend);
+                
+                // Application Status Chart
+                renderApplicationChart(data.applicationsByStatus);
+                
+                // Monthly Hours Chart
+                renderMonthlyHoursChart(data.monthlyHours);
+            })
+            .catch(error => {
+                console.error('Error loading chart data:', error);
+                document.getElementById('userGrowthLoader').innerHTML = '<p class="text-red-500">Error loading chart data.</p>';
+                document.getElementById('applicationChartLoader').innerHTML = '<p class="text-red-500">Error loading chart data.</p>';
+                document.getElementById('monthlyHoursLoader').innerHTML = '<p class="text-red-500">Error loading chart data.</p>';
+            });
+    }
+
+    function renderUserTrendChart(userTrendData) {
+        document.getElementById('userGrowthLoader').classList.add('hidden');
+        document.getElementById('userGrowthChart').classList.remove('hidden');
+
+        new Chart(document.getElementById('userGrowthChart'), {
+            type: 'line',
+            data: {
+                labels: userTrendData.map(d => new Date(d.date).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})),
+                datasets: [{
+                    label: 'New Users',
+                    data: userTrendData.map(d => d.count),
+                    borderColor: 'rgb(99, 102, 241)',
+                    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { 
+                    y: { beginAtZero: true, ticks: { precision: 0 } }
+                }
+            }
+        });
+    }
+
+    function renderApplicationChart(applicationsByStatus) {
+        document.getElementById('applicationChartLoader').classList.add('hidden');
+        document.getElementById('applicationChart').classList.remove('hidden');
+
+        new Chart(document.getElementById('applicationChart'), {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(applicationsByStatus),
+                datasets: [{
+                    data: Object.values(applicationsByStatus),
+                    backgroundColor: ['#F59E0B', '#10B981', '#EF4444', '#3B82F6']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+    }
+
+    function renderMonthlyHoursChart(monthlyHoursData) {
+        document.getElementById('monthlyHoursLoader').classList.add('hidden');
+        document.getElementById('monthlyHoursChart').classList.remove('hidden');
+
+        new Chart(document.getElementById('monthlyHoursChart'), {
+            type: 'bar',
+            data: {
+                // Tạo label tháng/năm
+                labels: monthlyHoursData.map(d => `${d.year}-${String(d.month).padStart(2, '0')}`), 
+                datasets: [{
+                    label: 'Hours',
+                    data: monthlyHoursData.map(d => d.total_hours),
+                    backgroundColor: 'rgba(99, 102, 241, 0.8)',
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { 
+                    y: { beginAtZero: true } ,
+                    x: { ticks: { autoSkip: true, maxRotation: 0 } }
+                }
+            }
+        });
+    }
+
+    // --- TOP LISTS FETCH & RENDERING ---
+    function fetchTopListData() {
+        axios.get(`/api/analytics/top-lists`)
+            .then(response => {
+                const data = response.data;
+                
+                renderTopCategories(data.topCategories);
+                renderTopVolunteers(data.topVolunteers);
+                renderTopOrganizations(data.topOrganizations);
+            })
+            .catch(error => {
+                console.error('Error loading top list data:', error);
+                document.getElementById('topCategoriesContainer').innerHTML = '<p class="text-red-500 text-sm text-center py-4">Error loading data.</p>';
+                document.getElementById('topVolunteersList').innerHTML = '<div class="px-6 py-12 text-center"><p class="text-red-500">Error loading list.</p></div>';
+                document.getElementById('topOrganizationsList').innerHTML = '<div class="px-6 py-12 text-center"><p class="text-red-500">Error loading list.</p></div>';
+            });
+    }
+
+    function renderTopCategories(categories) {
+        const container = document.getElementById('topCategoriesContainer');
+        if (categories.length === 0) {
+            container.innerHTML = '<p class="text-gray-500 text-sm text-center py-4">No data available</p>';
+            return;
+        }
+
+        const maxCount = categories.length > 0 ? categories[0].count : 1;
+        
+        let html = '<div class="space-y-3">';
+        categories.forEach(category => {
+            const widthPercentage = (category.count / maxCount) * 100;
+            html += `
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-sm font-medium text-gray-700">${category.category_name}</span>
+                        <span class="text-sm text-gray-500">${category.count.toLocaleString()}</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                        <div class="bg-indigo-600 h-2 rounded-full transition-all" 
+                             style="width: ${widthPercentage}%"></div>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        container.innerHTML = html;
+    }
+    
+    // Sử dụng JavaScript để tạo cấu trúc danh sách cho Top Volunteers
+    function renderTopVolunteers(volunteers) {
+        const container = document.getElementById('topVolunteersList');
+        if (volunteers.length === 0) {
+            container.innerHTML = '<div class="px-6 py-12 text-center"><p class="text-gray-500">No volunteers yet</p></div>';
+            return;
+        }
+        
+        let html = '';
+        volunteers.forEach((volunteer, index) => {
+            const fullName = `${volunteer.first_name} ${volunteer.last_name}`;
+            const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`;
+            html += `
+                <div class="px-6 py-4 hover:bg-gray-50 transition">
+                    <div class="flex items-center space-x-4">
+                        <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+                            ${index + 1}
+                        </div>
+                        <img src="${avatarUrl}" class="w-12 h-12 rounded-full border-2 border-gray-200" alt="">
+                        <div class="flex-1">
+                            <p class="font-medium text-gray-900">${fullName}</p>
+                            <p class="text-sm text-gray-500">
+                                <i class="fas fa-clock mr-1"></i>${volunteer.total_hours.toLocaleString()} hours
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    // Sử dụng JavaScript để tạo cấu trúc danh sách cho Top Organizations
+    function renderTopOrganizations(organizations) {
+        const container = document.getElementById('topOrganizationsList');
+        if (organizations.length === 0) {
+            container.innerHTML = '<div class="px-6 py-12 text-center"><p class="text-gray-500">No organizations yet</p></div>';
+            return;
+        }
+        
+        let html = '';
+        organizations.forEach((org, index) => {
+            const rating = org.rating ? org.rating.toFixed(1) : '0.0';
+            html += `
+                <div class="px-6 py-4 hover:bg-gray-50 transition">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-4">
+                            <div class="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-green-500 to-teal-600 rounded-full flex items-center justify-center text-white font-bold">
+                                ${index + 1}
+                            </div>
+                            <div>
+                                <p class="font-medium text-gray-900">${org.organization_name}</p>
+                                <p class="text-sm text-gray-500">
+                                    <i class="fas fa-users mr-1"></i>${org.volunteer_count.toLocaleString()} volunteers
+                                </p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-yellow-500">
+                                <i class="fas fa-star"></i> ${rating}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+</script>
+@endpush
 @endsection

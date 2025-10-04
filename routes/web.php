@@ -300,7 +300,8 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/opportunities/export', [AdminController::class, 'exportOpportunities'])->name('opportunities.export');
 
     // Applications Monitoring
-    Route::get('/applications', [AdminController::class, 'applications'])->name('applications.index');
+    Route::get('/applications', [AdminController::class, 'index'])->name('applications.index');
+    Route::get('/applications-export', [AdminController::class, 'exportApplications'])->name('applications.export');
     Route::get('/applications/{id}', [AdminController::class, 'showApplication'])->name('applications.show');
 
     // Activities Monitoring
@@ -308,7 +309,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/activities/{id}', [AdminController::class, 'showActivity'])->name('activities.show');
     Route::get('/activities/disputes', [AdminController::class, 'disputedActivities'])->name('activities.disputes');
     Route::post('/activities/{id}/resolve-dispute', [AdminController::class, 'resolveDispute'])->name('activities.resolve-dispute');
-
+    
     // Reviews Management
     Route::get('/reviews', [ReviewController::class, 'pending'])->name('reviews.index'); // Mặc định là pending
     Route::get('/reviews/all', [AdminController::class, 'allReviews'])->name('reviews.all'); // Tất cả reviews
@@ -318,19 +319,29 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('/reviews/bulk-approve', [ReviewController::class, 'bulkApprove'])->name('reviews.bulk-approve');
 
     // Categories Management
-    Route::get('/categories', [CategoryController::class, 'index'])->name('categories.index');
-    // Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
-    // Route::get('/categories/{id}/edit', [CategoryController::class, 'edit'])->name('categories.edit');
-    // Route::put('/categories/{id}', [CategoryController::class, 'update'])->name('categories.update');
-    // Route::delete('/categories/{id}', [CategoryController::class, 'destroy'])->name('categories.destroy');
-    Route::post('/categories/{id}/toggle', [CategoryController::class, 'toggleActive'])->name('categories.toggle');
+    Route::get('/categories', [AdminController::class, 'categories'])->name('categories.index');
+    Route::get('/categories/create', function () {
+        return view('admin.categories.create');
+    })->name('categories.create');
+    Route::post('/categories', [AdminController::class, 'categoriesStore'])->name('categories.store');
+    Route::get('/categories/{id}/edit', function ($id) {
+        $category = \App\Models\Category::withCount('opportunities')->findOrFail($id);
+        return view('admin.categories.edit', compact('category'));
+    })->name('categories.edit');
+    Route::put('/categories/{id}', [AdminController::class, 'categoriesUpdate'])->name('categories.update');
+    Route::delete('/categories/{id}', [AdminController::class, 'categoriesDestroy'])->name('categories.destroy');
+    Route::post('/categories/{id}/toggle', [AdminController::class, 'categoriesToggle'])->name('categories.toggle');
 
     // Analytics & Reports
     Route::get('/analytics', [AnalyticsController::class, 'index'])->name('analytics.index');
-    Route::get('/analytics/reports', [AdminController::class, 'reports'])->name('analytics.reports');
+    Route::get('/analytics/chart-data', [AnalyticsController::class, 'getChartData'])->name('analytics.chart-data');
+    Route::get('/analytics/impact', [AnalyticsController::class, 'impactReport'])->name('analytics.impact');
     Route::post('/analytics/custom-report', [AnalyticsController::class, 'customReport'])->name('analytics.custom-report');
     Route::post('/analytics/export', [AnalyticsController::class, 'exportReport'])->name('analytics.export');
-    Route::get('/analytics/impact', [AnalyticsController::class, 'impactReport'])->name('analytics.impact');
+    Route::post('/analytics/clear-cache', [AnalyticsController::class, 'clearCache'])->name('analytics.clear-cache');
+
+    // Reports
+    Route::get('/analytics/reports', [AnalyticsController::class, 'reports'])->name('analytics.reports');
 
     // reports
     // Route::get('/reports', [AdminController::class, 'reports'])->name('reports.index');
@@ -353,12 +364,12 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('/users/{id}/activate', [AdminController::class, 'activateUser'])->name('users.activate');
     Route::post('/users/{id}/deactivate', [AdminController::class, 'deactivateUser'])->name('users.deactivate');
 
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount'])->name('notifications.unread-count');
 
     // System Settings
     Route::get('/settings', [AdminController::class, 'settings'])->name('settings.index');
     Route::put('/settings', [AdminController::class, 'updateSettings'])->name('settings.update');
 });
-
 /*
 |--------------------------------------------------------------------------
 | Shared Routes (Applications - both volunteer and organization can access)

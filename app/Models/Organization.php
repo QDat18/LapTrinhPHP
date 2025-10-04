@@ -5,10 +5,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Traits\ClearAnalyticsCache;
 
 class Organization extends Model{
     use HasFactory;
-
+    use ClearAnalyticsCache;
     protected $primaryKey = 'org_id';
     protected $fillable = [
         'user_id',

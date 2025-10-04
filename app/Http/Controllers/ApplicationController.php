@@ -17,143 +17,104 @@ class ApplicationController extends Controller
      */
     public function create($opportunityId)
     {
-        $opportunity = VolunteerOpportunity::with('organization.user')
-            ->findOrFail($opportunityId);
+        // Lấy opportunity với các relationships cần thiết
+        $opportunity = VolunteerOpportunity::with([
+            'organization.user',
+            'category'
+        ])->findOrFail($opportunityId);
 
-        // Check if user is volunteer
-        if (!Auth::user()->isVolunteer()) {
-            return redirect()->back()
-                ->with('error', 'Only volunteers can apply for opportunities.');
-        }
-
-        // Check if opportunity is still active
-        if ($opportunity->status !== 'Active') {
-            return redirect()->back()
-                ->with('error', 'This opportunity is no longer accepting applications.');
-        }
-
-        // Check if application deadline passed
-        if ($opportunity->application_deadline < now()) {
-            return redirect()->back()
-                ->with('error', 'Application deadline has passed.');
-        }
-
-        // Check if already applied
-        $hasApplied = $opportunity->applications()
+        // Kiểm tra xem user đã apply chưa
+        $existingApplication = Application::where('opportunity_id', $opportunityId)
             ->where('volunteer_id', Auth::id())
-            ->exists();
+            ->first();
 
-        if ($hasApplied) {
-            return redirect()->back()
-                ->with('error', 'You have already applied for this opportunity.');
+        if ($existingApplication) {
+            return redirect()
+                ->route('opportunities.show', $opportunityId)
+                ->with('error', 'You have already applied for this opportunity');
         }
 
-        // Check maximum concurrent applications (3)
-        $activeApplications = Auth::user()->applications()
-            ->whereIn('status', ['Pending', 'Under Review'])
-            ->count();
-
-        if ($activeApplications >= 3) {
-            return redirect()->back()
-                ->with('error', 'You can only have 3 active applications at a time.');
+        // Kiểm tra xem opportunity còn slot không
+        if ($opportunity->volunteers_registered >= $opportunity->volunteers_needed) {
+            return redirect()
+                ->route('opportunities.show', $opportunityId)
+                ->with('error', 'This opportunity is already full');
         }
 
-        return view('applications.create', compact('opportunity'));
+        // Kiểm tra deadline
+        if ($opportunity->application_deadline && $opportunity->application_deadline < now()) {
+            return redirect()
+                ->route('opportunities.show', $opportunityId)
+                ->with('error', 'Application deadline has passed');
+        }
+
+        return view('volunteer.applications.create', compact('opportunity'));
     }
-
     /**
      * Store application
      */
     public function store(Request $request, $opportunityId)
     {
-        $opportunity = VolunteerOpportunity::findOrFail($opportunityId);
-
-        // Validation
-        $validator = Validator::make($request->all(), [
+        $validated = $request->validate([
             'motivation_letter' => 'required|string|min:100|max:2000',
             'relevant_experience' => 'nullable|string|max:1000',
             'availability_note' => 'nullable|string|max:500',
-        ], [
-            'motivation_letter.required' => 'Motivation letter is required',
-            'motivation_letter.min' => 'Motivation letter must be at least 100 characters',
-            'motivation_letter.max' => 'Motivation letter must not exceed 2000 characters',
+            'terms' => 'required|accepted'
         ]);
 
-        if ($validator->fails()) {
-            return redirect()->back()
-                ->withErrors($validator)
-                ->withInput();
-        }
+        $opportunity = VolunteerOpportunity::findOrFail($opportunityId);
 
-        // Check if already applied
-        $hasApplied = $opportunity->applications()
-            ->where('volunteer_id', Auth::id())
-            ->exists();
+        // Tạo application
+        $application = Application::create([
+            'opportunity_id' => $opportunityId,
+            'volunteer_id' => Auth::id(),
+            'motivation_letter' => $validated['motivation_letter'],
+            'relevant_experience' => $validated['relevant_experience'] ?? null,
+            'availability_note' => $validated['availability_note'] ?? null,
+            'status' => 'Pending'
+        ]);
 
-        if ($hasApplied) {
-            return redirect()->back()
-                ->with('error', 'You have already applied for this opportunity.');
-        }
+        // Tăng application count
+        $opportunity->increment('application_count');
 
-        try {
-            DB::beginTransaction();
+        // Tạo notification cho organization
+        \App\Models\Notification::create([
+            'user_id' => $opportunity->organization->user_id,
+            'notification_type' => 'Application',
+            'title' => 'New Volunteer Application',
+            'content' => Auth::user()->first_name . ' has applied for ' . $opportunity->title,
+            'related_id' => $application->application_id,
+            'related_type' => 'application',
+            'priority' => 'medium'
+        ]);
 
-            // Create application
-            $application = Application::create([
-                'opportunity_id' => $opportunityId,
-                'volunteer_id' => Auth::id(),
-                'motivation_letter' => $request->motivation_letter,
-                'relevant_experience' => $request->relevant_experience,
-                'availability_note' => $request->availability_note,
-                'status' => 'Pending',
-                'applied_date' => now(),
-            ]);
-
-            // Increment application count
-            $opportunity->increment('application_count');
-
-            // Create notification for organization
-            Notification::create([
-                'user_id' => $opportunity->organization->user_id,
-                'notification_type' => 'Application',
-                'title' => 'New Application Received',
-                'content' => Auth::user()->full_name . ' has applied for your opportunity: ' . $opportunity->title,
-                'related_id' => $application->application_id,
-                'related_type' => 'application',
-                'action_url' => route('applications.show', $application->application_id),
-                'priority' => 'medium',
-            ]);
-
-            DB::commit();
-
-            return redirect()->route('applications.show', $application->application_id)
-                ->with('success', 'Application submitted successfully!');
-        } catch (\Exception $e) {
-            DB::rollBack();
-            
-            return redirect()->back()
-                ->with('error', 'Failed to submit application. Please try again.')
-                ->withInput();
-        }
+        return redirect()
+            ->route('volunteer.applications.index')
+            ->with('success', 'Application submitted successfully! The organization will review it soon.');
     }
-
+    public function index()
+    {
+        $applications = Application::with(['opportunity.organization.user'])  // ✅ Đúng: $applications
+            ->where('volunteer_id', Auth::id())
+            ->latest()
+            ->paginate(15);
+        return view('volunteer.applications.index', compact('applications'));
+    }
     /**
      * Show application details
      */
     public function show($id)
     {
-        $application = Application::with(['opportunity.organization.user', 'volunteer'])
+        $application = Application::with([
+            'opportunity.organization.user',
+            'opportunity.category'
+        ])
+            ->where('volunteer_id', Auth::id())
             ->findOrFail($id);
 
-        // Check authorization
-        $user = Auth::user();
-        if ($application->volunteer_id !== $user->user_id && 
-            $application->opportunity->organization->user_id !== $user->user_id) {
-            abort(403, 'Unauthorized action.');
-        }
-
-        return view('applications.show', compact('application'));
+        return view('volunteer.applications.show', compact('application'));
     }
+
 
     /**
      * Volunteer's applications list
@@ -191,7 +152,7 @@ class ApplicationController extends Controller
         $organization = Auth::user()->organization;
 
         $query = Application::with(['volunteer.volunteerProfile', 'opportunity'])
-            ->whereHas('opportunity', function($q) use ($organization) {
+            ->whereHas('opportunity', function ($q) use ($organization) {
                 $q->where('org_id', $organization->org_id);
             });
 
@@ -259,7 +220,7 @@ class ApplicationController extends Controller
             }
 
             // Create notification for volunteer
-            $notificationContent = match($request->status) {
+            $notificationContent = match ($request->status) {
                 'Under Review' => 'Your application is now under review',
                 'Accepted' => 'Congratulations! Your application has been accepted',
                 'Rejected' => 'Your application has been reviewed',
@@ -286,7 +247,7 @@ class ApplicationController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             return response()->json(['error' => 'Failed to update status'], 500);
         }
     }
@@ -337,7 +298,7 @@ class ApplicationController extends Controller
                 ->with('success', 'Application withdrawn successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             return redirect()->back()
                 ->with('error', 'Failed to withdraw application. Please try again.');
         }
@@ -393,7 +354,7 @@ class ApplicationController extends Controller
                 ->with('success', 'Interview scheduled successfully!');
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             return redirect()->back()
                 ->with('error', 'Failed to schedule interview. Please try again.');
         }
@@ -419,23 +380,23 @@ class ApplicationController extends Controller
         } elseif ($user->isOrganization()) {
             $organization = $user->organization;
             $stats = [
-                'total' => Application::whereHas('opportunity', function($q) use ($organization) {
+                'total' => Application::whereHas('opportunity', function ($q) use ($organization) {
                     $q->where('org_id', $organization->org_id);
                 })->count(),
-                'pending' => Application::whereHas('opportunity', function($q) use ($organization) {
+                'pending' => Application::whereHas('opportunity', function ($q) use ($organization) {
                     $q->where('org_id', $organization->org_id);
                 })->where('status', 'Pending')->count(),
-                'under_review' => Application::whereHas('opportunity', function($q) use ($organization) {
+                'under_review' => Application::whereHas('opportunity', function ($q) use ($organization) {
                     $q->where('org_id', $organization->org_id);
                 })->where('status', 'Under Review')->count(),
-                'accepted' => Application::whereHas('opportunity', function($q) use ($organization) {
+                'accepted' => Application::whereHas('opportunity', function ($q) use ($organization) {
                     $q->where('org_id', $organization->org_id);
                 })->where('status', 'Accepted')->count(),
-                'need_response' => Application::whereHas('opportunity', function($q) use ($organization) {
+                'need_response' => Application::whereHas('opportunity', function ($q) use ($organization) {
                     $q->where('org_id', $organization->org_id);
                 })->where('status', 'Pending')
-                  ->where('applied_date', '<', now()->subDays(5))
-                  ->count(),
+                    ->where('applied_date', '<', now()->subDays(5))
+                    ->count(),
             ];
         }
 
@@ -468,7 +429,7 @@ class ApplicationController extends Controller
 
             // Get applications that belong to this organization
             $applications = Application::whereIn('application_id', $request->application_ids)
-                ->whereHas('opportunity', function($q) use ($organization) {
+                ->whereHas('opportunity', function ($q) use ($organization) {
                     $q->where('org_id', $organization->org_id);
                 })
                 ->get();
@@ -499,7 +460,7 @@ class ApplicationController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             return response()->json(['error' => 'Failed to update applications'], 500);
         }
     }
@@ -516,7 +477,7 @@ class ApplicationController extends Controller
         $organization = Auth::user()->organization;
 
         $query = Application::with(['volunteer', 'opportunity'])
-            ->whereHas('opportunity', function($q) use ($organization) {
+            ->whereHas('opportunity', function ($q) use ($organization) {
                 $q->where('org_id', $organization->org_id);
             });
 
@@ -533,12 +494,12 @@ class ApplicationController extends Controller
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ];
 
-        $callback = function() use ($applications) {
+        $callback = function () use ($applications) {
             $file = fopen('php://output', 'w');
-            
+
             // CSV headers
             fputcsv($file, ['ID', 'Opportunity', 'Volunteer Name', 'Email', 'Phone', 'Status', 'Applied Date', 'Reviewed Date']);
-            
+
             foreach ($applications as $app) {
                 fputcsv($file, [
                     $app->application_id,
@@ -551,7 +512,7 @@ class ApplicationController extends Controller
                     $app->reviewed_date,
                 ]);
             }
-            
+
             fclose($file);
         };
 

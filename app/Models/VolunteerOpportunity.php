@@ -11,9 +11,11 @@ use App\Models\Organization;
 use App\Models\Category;
 use App\Models\Favorite;
 use App\Models\Application;
+use App\Traits\ClearAnalyticsCache;
 
 class VolunteerOpportunity extends Model{
     use HasFactory;
+    use ClearAnalyticsCache;
     protected $primaryKey = 'opportunity_id';
 
     protected $fillable = [

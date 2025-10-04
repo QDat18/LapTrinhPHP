@@ -8,10 +8,11 @@ use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Traits\ClearAnalyticsCache;
 
 class User extends Authenticatable{
     use HasApiTokens, HasFactory, Notifiable;
-
+    use ClearAnalyticsCache;
     protected $table = 'users';
     protected $primaryKey = 'user_id';
 

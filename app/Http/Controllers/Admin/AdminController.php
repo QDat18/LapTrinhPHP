@@ -751,15 +751,197 @@ class AdminController extends Controller
     /**
      * Display applications list
      */
-    public function applications()
+    /**
+     * Display applications list for admin
+     */
+    public function index(Request $request)
     {
-        $applications = Application::with(['volunteer', 'opportunity'])
-            ->latest()
-            ->paginate(15);
+        $query = Application::with(['volunteer', 'opportunity.organization']);
 
-        return view('admin.applications.index', compact('applications'));
+        // Search
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->whereHas('volunteer', function ($q) use ($search) {
+                $q->where('first_name', 'LIKE', "%{$search}%")
+                    ->orWhere('last_name', 'LIKE', "%{$search}%")
+                    ->orWhere('email', 'LIKE', "%{$search}%");
+            });
+        }
+
+        // Filter by status
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        // Filter by organization
+        if ($request->filled('organization')) {
+            $query->whereHas('opportunity.organization', function ($q) use ($request) {
+                $q->where('organization_name', 'LIKE', "%{$request->organization}%");
+            });
+        }
+
+        // Filter by date range
+        if ($request->filled('date_range')) {
+            switch ($request->date_range) {
+                case 'today':
+                    $query->whereDate('applied_date', today());
+                    break;
+                case 'week':
+                    $query->whereBetween('applied_date', [now()->startOfWeek(), now()->endOfWeek()]);
+                    break;
+                case 'month':
+                    $query->whereMonth('applied_date', now()->month)
+                        ->whereYear('applied_date', now()->year);
+                    break;
+            }
+        }
+
+        $applications = $query->latest('applied_date')->paginate(15);
+
+        // Statistics
+        $stats = [
+            'total' => Application::count(),
+            'pending' => Application::where('status', 'Pending')->count(),
+            'under_review' => Application::where('status', 'Under Review')->count(),
+            'accepted' => Application::where('status', 'Accepted')->count(),
+            'rejected' => Application::where('status', 'Rejected')->count(),
+        ];
+
+        return view('admin.applications.index', compact('applications', 'stats'));
     }
 
+    /**
+     * Show application details for admin
+     */
+    public function showApplication($id)
+    {
+        $application = Application::with([
+            'volunteer.volunteerProfile',
+            'opportunity.organization.user',
+            'opportunity.category'
+        ])->findOrFail($id);
+
+        return view('admin.applications.show', compact('application'));
+    }
+
+    /**
+     * Export applications
+     */
+    /**
+     * Export applications to CSV with detailed information
+     */
+    public function exportApplications(Request $request)
+    {
+        $query = Application::with(['volunteer.volunteerProfile', 'opportunity.organization']);
+
+        // Apply filters from request
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->whereHas('volunteer', function ($q) use ($search) {
+                $q->where('first_name', 'LIKE', "%{$search}%")
+                    ->orWhere('last_name', 'LIKE', "%{$search}%")
+                    ->orWhere('email', 'LIKE', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('organization')) {
+            $query->whereHas('opportunity.organization', function ($q) use ($request) {
+                $q->where('organization_name', 'LIKE', "%{$request->organization}%");
+            });
+        }
+
+        if ($request->filled('date_range')) {
+            switch ($request->date_range) {
+                case 'today':
+                    $query->whereDate('applied_date', today());
+                    break;
+                case 'week':
+                    $query->whereBetween('applied_date', [now()->startOfWeek(), now()->endOfWeek()]);
+                    break;
+                case 'month':
+                    $query->whereMonth('applied_date', now()->month)
+                        ->whereYear('applied_date', now()->year);
+                    break;
+            }
+        }
+
+        $applications = $query->orderBy('applied_date', 'desc')->get();
+
+        $filename = 'applications_export_' . date('Y-m-d_His') . '.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Cache-Control' => 'max-age=0',
+        ];
+
+        $callback = function () use ($applications) {
+            $file = fopen('php://output', 'w');
+
+            // Add BOM for UTF-8
+            fprintf($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+            // CSV Headers
+            fputcsv($file, [
+                'Application ID',
+                'Volunteer Name',
+                'Email',
+                'Phone',
+                'City',
+                'Age',
+                'Total Hours',
+                'Rating',
+                'Opportunity',
+                'Organization',
+                'Category',
+                'Location',
+                'Status',
+                'Applied Date',
+                'Reviewed Date',
+                'Interview Date',
+                'Days Pending'
+            ]);
+
+            foreach ($applications as $app) {
+                $volunteer = $app->volunteer;
+                $profile = $volunteer->volunteerProfile;
+                $opportunity = $app->opportunity;
+                $organization = $opportunity->organization;
+
+                // Calculate days pending
+                $daysPending = $app->status === 'Pending' ?
+                    $app->applied_date->diffInDays(now()) : ($app->reviewed_date ? $app->applied_date->diffInDays($app->reviewed_date) : 0);
+
+                fputcsv($file, [
+                    $app->application_id,
+                    $volunteer->first_name . ' ' . $volunteer->last_name,
+                    $volunteer->email,
+                    $volunteer->phone ?? 'N/A',
+                    $volunteer->city ?? 'N/A',
+                    $volunteer->date_of_birth ? \Carbon\Carbon::parse($volunteer->date_of_birth)->age : 'N/A',
+                    $profile ? $profile->total_volunteer_hours : 0,
+                    $profile ? number_format($profile->volunteer_rating, 2) : '0.00',
+                    $opportunity->title,
+                    $organization->organization_name,
+                    $opportunity->category ? $opportunity->category->category_name : 'N/A',
+                    $opportunity->location,
+                    $app->status,
+                    $app->applied_date->format('Y-m-d H:i:s'),
+                    $app->reviewed_date ? $app->reviewed_date->format('Y-m-d H:i:s') : 'N/A',
+                    $app->interview_scheduled ?? 'N/A',
+                    $daysPending
+                ]);
+            }
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
     /**
      * Display categories list
      */
@@ -798,7 +980,92 @@ class AdminController extends Controller
             'message' => 'Category created successfully'
         ]);
     }
+    /**
+     * Show edit category form
+     */
+    public function categoriesEdit($id)
+    {
+        $category = Category::findOrFail($id);
+        return response()->json([
+            'success' => true,
+            'data' => $category
+        ]);
+    }
 
+    /**
+     * Update category
+     */
+    public function categoriesUpdate(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'category_name' => 'required|string|max:50|unique:categories,category_name,' . $id . ',category_id',
+            'description' => 'nullable|string',
+            'icon' => 'nullable|string',
+            'color' => 'nullable|string',
+            'display_order' => 'nullable|integer',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => $validator->errors()->first()
+            ], 422);
+        }
+
+        $category = Category::findOrFail($id);
+        $category->update($request->all());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Category updated successfully'
+        ]);
+    }
+
+    /**
+     * Delete category
+     */
+    public function categoriesDestroy($id)
+    {
+        try {
+            $category = Category::findOrFail($id);
+
+            // Check if category has opportunities
+            if ($category->opportunities()->count() > 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cannot delete category with existing opportunities'
+                ], 400);
+            }
+
+            $category->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Category deleted successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete category'
+            ], 500);
+        }
+    }
+
+    /**
+     * Toggle category active status
+     */
+    public function categoriesToggle($id)
+    {
+        $category = Category::findOrFail($id);
+        $category->is_active = !$category->is_active;
+        $category->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Category status updated',
+            'is_active' => $category->is_active
+        ]);
+    }
     /**
      * Display activities list
      */
@@ -811,6 +1078,121 @@ class AdminController extends Controller
         return view('admin.activities.index', compact('activities'));
     }
 
+
+    /**
+     * Show activity details
+     */
+    public function showActivity($id)
+    {
+        $activity = VolunteerActivity::with([
+            'volunteer.volunteerProfile',
+            'opportunity.organization',
+            'verifier'
+        ])->findOrFail($id);
+
+        return view('admin.activities.show', compact('activity'));
+    }
+
+    /**
+     * Display disputed activities
+     */
+    public function disputedActivities()
+    {
+        $activities = VolunteerActivity::with(['volunteer', 'opportunity', 'organization'])
+            ->where('status', 'Disputed')
+            ->latest()
+            ->paginate(15);
+
+        return view('admin.activities.disputes', compact('activities'));
+    }
+
+    /**
+     * Resolve activity dispute
+     */
+    public function resolveDispute(Request $request, $id)
+    {
+        $activity = VolunteerActivity::findOrFail($id);
+
+        $validator = Validator::make($request->all(), [
+            'resolution' => 'required|in:approve,reject',
+            'admin_notes' => 'nullable|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => $validator->errors()->first()
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            if ($request->resolution === 'approve') {
+                $activity->update([
+                    'status' => 'Verified',
+                    'verified_by' => Auth::id(),
+                    'verified_date' => now(),
+                    'impact_notes' => $request->admin_notes,
+                ]);
+
+                // Update volunteer total hours
+                $activity->volunteer->volunteerProfile->increment('total_volunteer_hours', $activity->hours_worked);
+
+                $message = 'Activity approved and hours verified';
+            } else {
+                $activity->update([
+                    'status' => 'Rejected',
+                    'impact_notes' => $request->admin_notes,
+                ]);
+
+                $message = 'Activity rejected';
+            }
+
+            // Create notification for volunteer
+            Notification::create([
+                'user_id' => $activity->volunteer_id,
+                'notification_type' => 'System',
+                'title' => 'Activity Dispute Resolved',
+                'content' => "Your disputed activity has been {$request->resolution}d by admin.",
+                'related_id' => $activity->activity_id,
+                'related_type' => 'activity',
+                'priority' => 'high',
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => $message
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to resolve dispute'
+            ], 500);
+        }
+    }
+
+    /**
+     * Display all reviews
+     */
+    public function allReviews()
+    {
+        $reviews = Review::with(['reviewer', 'reviewee', 'opportunity'])
+            ->latest()
+            ->paginate(15);
+
+        $stats = [
+            'total' => Review::count(),
+            'pending' => Review::where('is_approved', false)->count(),
+            'approved' => Review::where('is_approved', true)->count(),
+            'average_rating' => Review::where('is_approved', true)->avg('rating'),
+        ];
+
+        return view('admin.reviews.all', compact('reviews', 'stats'));
+    }
     /**
      * Display reviews list
      */

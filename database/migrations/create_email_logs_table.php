@@ -16,11 +16,16 @@ return new class extends Migration
             $table->enum('recipient_type', ['all', 'volunteers', 'organizations', 'active', 'single']);
             $table->integer('recipient_count')->default(0);
             $table->string('subject');
-            $table->integer('sent_by');
+            $table->unsignedBigInteger('sent_by'); // ✅ Sửa: thêm unsigned
             $table->timestamp('sent_at');
             $table->timestamps();
+
+            // ✅ Chỉ khai báo foreign key 1 lần
+            $table->foreign('sent_by')
+                ->references('user_id')
+                ->on('users')
+                ->onDelete('cascade');
             
-            $table->foreign('sent_by')->references('user_id')->on('users')->onDelete('cascade');
             $table->index('sent_at');
         });
     }

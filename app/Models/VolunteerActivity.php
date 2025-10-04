@@ -7,10 +7,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Carbon\Carbon;
 use App\Models\VolunteerOpportunity;
+use App\Traits\ClearAnalyticsCache;
+
 class VolunteerActivity extends Model
 {
     use HasFactory;
-
+    use ClearAnalyticsCache;
     protected $primaryKey = 'activity_id';
 
     public $timestamps = false;
